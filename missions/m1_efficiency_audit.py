@@ -15,7 +15,7 @@ def run(verbose: bool = True) -> dict:
     cat = catalog_by_type()
 
     # per-row MFU/MBU, then aggregate per GPU
-    agg = defaultdict(lambda: {"util": [], "mfu": [], "mbu": [], "type": None, "idle_hours": 0})
+    agg = defaultdict(lambda: {"util": [], "mfu": [], "mbu": [], "type": None, "idle_hours": 0, "memory": [], "achieved_flops": [], "achieved_bw": []})
     for r in tel:
         gtype = r["gpu_type"]
         peak_fp16 = num(cat[gtype]["peak_tflops_fp16"])
@@ -27,6 +27,9 @@ def run(verbose: bool = True) -> dict:
         a["util"].append(num(r["gpu_util_pct"]))
         a["mfu"].append(mfu)
         a["mbu"].append(mbu)
+        a["memory"].append(num(r["mem_used_gb"]))
+        a["achieved_flops"].append(num(r["achieved_tflops"]))
+        a["achieved_bw"].append(num(r["achieved_bw_tbs"]))
         if num(r["gpu_util_pct"]) < 10:  # effectively idle this interval (1h)
             a["idle_hours"] += 1
 
@@ -38,54 +41,43 @@ def run(verbose: bool = True) -> dict:
             "mfu": round(sum(a["mfu"]) / len(a["mfu"]), 3),
             "mbu": round(sum(a["mbu"]) / len(a["mbu"]), 3),
             "idle_hours": a["idle_hours"],
+            "memory_p95_gb": sorted(a["memory"])[int(0.95 * (len(a["memory"]) - 1))],
+            "observed_flops": max(a["achieved_flops"]),
+            "observed_bw": max(a["achieved_bw"]),
         })
 
-    # --- Extension 2: Right-sizing based on MBU (memory-bound workloads) ---
-    cat = catalog_by_type()
+    # Extension 2: screening candidates, not performance-validated replacements.
+    # Low MBU alone does not establish a memory-bound workload. Require
+    # sufficient VRAM, observed FLOPs and bandwidth with 10% headroom.
     right_size_suggestions = []
-    
-    # Calculate $/GB-VRAM cost for each GPU type
-    cost_by_gb_vram = {}
-    for gtype, data in cat.items():
-        hbm_gb = num(data["hbm_gb"])
-        on_demand_hr = num(data["on_demand_hr"])
-        if hbm_gb > 0:
-            cost_by_gb_vram[gtype] = on_demand_hr / hbm_gb
-        else:
-            cost_by_gb_vram[gtype] = float('inf')
-    
-    # Sort GPUs by cost efficiency (lower is better)
-    sorted_gpus = sorted(cost_by_gb_vram.items(), key=lambda x: x[1] if x[1] != float('inf') else float('inf'))
-    
-    for s in summary:
-        gtype = s["gpu_type"]
-        mbu = s["mbu"]
-        
-        # If workload is memory-bound (MBU < 0.3), consider right-sizing
-        if mbu < 0.3:
-            # Find best GPU for memory-bound workload
-            best_gtype = sorted_gpus[0][0]  # GPU with lowest $/GB-VRAM
-            best_cost = cost_by_gb_vram[best_gtype]
-            current_cost = cost_by_gb_vram.get(gtype, float('inf'))
-            
-            # Suggest right-sizing if current GPU is significantly more expensive
-            if current_cost > best_cost * 1.5:  # 50% cost difference threshold
-                on_demand_hr_current = num(cat[gtype]["on_demand_hr"])
-                on_demand_hr_best = num(cat[best_gtype]["on_demand_hr"])
-                
-                # Calculate monthly savings (assuming typical 720 hours/month)
-                monthly_cost_current = on_demand_hr_current * 720
-                monthly_cost_best = on_demand_hr_best * 720
-                monthly_savings = monthly_cost_current - monthly_cost_best
-                
-                right_size_suggestions.append({
-                    "gpu_id": s["gpu_id"],
-                    "current_gpu": gtype,
-                    "proposed_gpu": best_gtype,
-                    "mbu": mbu,
-                    "reason": f"Memory-bound workload (MBU={mbu:.2f}), {gtype} overpriced vs {best_gtype}",
-                    "monthly_savings": max(0, monthly_savings)
-                })
+    for gpu in summary:
+        if gpu["mfu"] >= 0.30 or not (gpu["gpu_util_pct"] >= 90 or gpu["idle_hours"] > 0):
+            continue
+        old = cat[gpu["gpu_type"]]
+        old_hr = num(old["on_demand_hr"])
+        candidates = []
+        for gpu_type, candidate in cat.items():
+            new_hr = num(candidate["on_demand_hr"])
+            if gpu_type == gpu["gpu_type"] or new_hr >= old_hr:
+                continue
+            if num(candidate["hbm_gb"]) < 1.1 * gpu["memory_p95_gb"]:
+                continue
+            if num(candidate["peak_tflops_fp16"]) < 1.1 * gpu["observed_flops"]:
+                continue
+            if num(candidate["peak_bw_tbs"]) < 1.1 * gpu["observed_bw"]:
+                continue
+            candidates.append((new_hr / num(candidate["hbm_gb"]), gpu_type))
+        if not candidates:
+            continue
+        _, replacement = min(candidates)
+        active_hours = (24 - gpu["idle_hours"]) * 30
+        right_size_suggestions.append({
+            "gpu_id": gpu["gpu_id"], "current_gpu": gpu["gpu_type"],
+            "proposed_gpu": replacement, "mbu": gpu["mbu"],
+            "active_hours_month": active_hours,
+            "monthly_savings": round((old_hr - num(cat[replacement]["on_demand_hr"])) * active_hours),
+            "reason": "Screened by memory/FLOPs/bandwidth; benchmark and CUDA/ROCm compatibility required",
+        })
 
     lies = metrics.flag_util_lies(summary)
     idle_waste = 0.0
