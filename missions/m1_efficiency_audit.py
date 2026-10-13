@@ -51,7 +51,11 @@ def run(verbose: bool = True) -> dict:
     # sufficient VRAM, observed FLOPs and bandwidth with 10% headroom.
     right_size_suggestions = []
     for gpu in summary:
-        if gpu["mfu"] >= 0.30 or not (gpu["gpu_util_pct"] >= 90 or gpu["idle_hours"] > 0):
+        # MBU is used as a *relative* screening signal, never as proof of
+        # a memory-bound workload. Low MFU alone is not enough either.
+        memory_pressure_ratio = gpu["mfu"] / gpu["mbu"] if gpu["mbu"] > 0 else float("inf")
+        if (gpu["mfu"] >= 0.30 or memory_pressure_ratio >= 1.2
+                or not (gpu["gpu_util_pct"] >= 90 or gpu["idle_hours"] > 0)):
             continue
         old = cat[gpu["gpu_type"]]
         old_hr = num(old["on_demand_hr"])
@@ -75,8 +79,12 @@ def run(verbose: bool = True) -> dict:
             "gpu_id": gpu["gpu_id"], "current_gpu": gpu["gpu_type"],
             "proposed_gpu": replacement, "mbu": gpu["mbu"],
             "active_hours_month": active_hours,
+            "cost_per_gb_before": round(old_hr / num(old["hbm_gb"]), 5),
+            "cost_per_gb_after": round(num(cat[replacement]["on_demand_hr"]) / num(cat[replacement]["hbm_gb"]), 5),
+            "bandwidth_before": num(old["peak_bw_tbs"]),
+            "bandwidth_after": num(cat[replacement]["peak_bw_tbs"]),
             "monthly_savings": round((old_hr - num(cat[replacement]["on_demand_hr"])) * active_hours),
-            "reason": "Screened by memory/FLOPs/bandwidth; benchmark and CUDA/ROCm compatibility required",
+            "reason": "MBU/FLOPs/VRAM/bandwidth screening only; benchmark and CUDA/ROCm compatibility required",
         })
 
     lies = metrics.flag_util_lies(summary)
@@ -94,7 +102,7 @@ def run(verbose: bool = True) -> dict:
         print(f"Idle waste (1 day): ${idle_waste:,.2f}  ->  ${idle_waste*30:,.0f}/month")
         
         if right_size_suggestions:
-            print(f"\n=== RIGHT-SIZING SUGGESTIONS (Memory-bound workloads) ===")
+            print(f"\n=== RIGHT-SIZING CANDIDATES (memory pressure heuristic, not verified) ===")
             print(f"{'GPU':14}{'Current':>10}{'Proposed':>10}{'MBU':>6}{'Monthly Savings':>16}{'Reason'}")
             for s in right_size_suggestions:
                 print(f"{s['gpu_id']:14}{s['current_gpu']:>10}{s['proposed_gpu']:>10}{s['mbu']:>6.2f}{s['monthly_savings']:>16,.0f}{s['reason']}")
