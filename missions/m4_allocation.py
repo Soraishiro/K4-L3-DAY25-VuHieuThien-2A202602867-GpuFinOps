@@ -18,13 +18,14 @@ TAGS = ["team", "project"]
 def run(verbose: bool = True) -> dict:
     rows = load_csv("token_usage.csv")
     priced = []
-    for r in rows:
+    for idx, r in enumerate(rows):
         inp, out = int(num(r["input_tokens"])), int(num(r["output_tokens"]))
         pin, pout = MODEL_PRICES[r["route_tier"]]
         cost = pricing.request_cost(inp, out, pin, pout,
                                     cached_in=int(num(r["cached_input_tokens"])),
                                     batch=bool(int(num(r["is_batch"]))))
-        priced.append({"team": r["team"], "project": r["project"],
+        priced.append({"team": r["team"], "project": r["project"], "ts": r["ts"],
+                       "resource_id": f"simulated-request-{idx:04d}",
                        "service": "gpu-inference", "cost": cost})
 
     by_team = allocation.cost_by_tag(priced, "team")
@@ -32,18 +33,24 @@ def run(verbose: bool = True) -> dict:
     coverage = allocation.tag_coverage(priced, TAGS)
     ready = allocation.chargeback_ready(coverage)
 
-    # write a FOCUS-style export (first 50 rows as a sample)
-    focus = allocation.to_focus_rows(priced[:50])
+    # Export all 2,400 simulated request charges; FOCUS-inspired, not certified.
+    focus = allocation.to_focus_rows(priced)
     out_path = os.path.join(ROOT, "outputs", "focus_export.csv")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["BillingAccountId", "ChargePeriodStart", "ServiceCategory",
-                    "ServiceName", "ResourceId", "BilledCost", "BillingCurrency", "team", "project"])
+    fields = [
+        "BillingAccountId", "BillingAccountName", "BillingPeriodStart",
+        "BillingPeriodEnd", "ChargePeriodStart", "ChargePeriodEnd",
+        "ChargeCategory", "ServiceCategory", "ServiceName", "ResourceId",
+        "BilledCost", "EffectiveCost", "ContractedCost", "ListCost",
+        "BillingCurrency", "Provider", "InvoiceIssuer", "team", "project",
+    ]
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
         for fr in focus:
-            w.writerow([fr["BillingAccountId"], fr["ChargePeriodStart"], fr["ServiceCategory"],
-                        fr["ServiceName"], fr["ResourceId"], fr["BilledCost"], fr["BillingCurrency"],
-                        fr["Tags"]["team"], fr["Tags"]["project"]])
+            w.writerow({**{k: fr.get(k, "") for k in fields},
+                        "team": fr["Tags"]["team"],
+                        "project": fr["Tags"]["project"]})
 
     if verbose:
         print("== M4 Cost Allocation ==")
