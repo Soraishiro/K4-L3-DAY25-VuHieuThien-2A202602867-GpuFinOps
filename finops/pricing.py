@@ -78,6 +78,21 @@ def recommend_tier(hours_per_day: float, interruptible: bool, reserved_discount:
     return "on_demand"
 
 
+def commitment_total_cost(hourly_rate: float, years: int,
+                          job_days: int, num_gpus: int = 1) -> float:
+    """Total *new* reserved commitment, including hours with no useful work.
+
+    A 30-day job cannot be priced as just 30 days of a newly bought 1-year
+    reservation. Multiple consecutive terms are needed for longer horizons.
+    This simplified model does not include resale or flexible commitments.
+    """
+    import math
+    if years not in (1, 3) or job_days <= 0 or num_gpus <= 0:
+        raise ValueError("years must be 1 or 3; job_days and num_gpus must be positive")
+    terms = math.ceil(job_days / (365 * years))
+    return hourly_rate * (365 * years) * 24 * num_gpus * terms
+
+
 def spot_checkpoint_cost(
     job_hours: float,
     spot_hr: float,
