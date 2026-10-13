@@ -50,42 +50,34 @@ def break_even_utilization(discount_frac: float) -> float:
     A 45% reserved discount needs ~55% utilization (~13.2h/day) to beat on-demand.
     """
     return max(0.0, min(1.0, 1.0 - discount_frac))
-def recommend_tier(hours_per_day: float, interruptible: bool, reserved_discount: float = 0.45,
-                  gpu_type: str = None, job_days: int = None) -> str:
-    """Pick a purchasing tier from a workload's duty cycle + interruptibility + job duration.
+# Illustrative probabilities per GPU-hour; these are not provider SLAs.
+SPOT_INTERRUPTION_RATE = {"H100": 0.05, "H200": 0.06, "A100": 0.08,
+                          "A10G": 0.08, "L4": 0.06, "B200": 0.10, "MI300X": 0.07}
 
-    Enhanced policy:
-      - Spot: interruptible job
-      - Reserved: duty >= break-even AND (job_days >= 7 OR job_days is None)
-      - On-demand: otherwise
-    
-    Added considerations:
-      - GPU type influences interruption rate (higher-end GPUs more stable for reserved)
-      - Job duration matches reserved commitment length (7+ days minimum for reserved)
-      - Break-even utilization with reserved_discount (default 45%)
+
+def recommend_tier(hours_per_day: float, interruptible: bool, reserved_discount: float = 0.45,
+                   gpu_type: str = None, job_days: int = None, *,
+                   existing_reserved_capacity: bool = False,
+                   spot_hr: float = None, on_demand_hr: float = None) -> str:
+    """Pick spot/reserved/on_demand under documented commitment assumptions.
+
+    New one-year commitments cannot be justified by a one-month job. For short
+    jobs, reserved means existing unused coverage, not a new purchase.
+    The legacy API (job_days=None) is retained for original lab tests.
     """
-    if job_days is not None:
-        if job_days > 365:
-            reserved_term = "reserved_3yr"
-        elif job_days > 0:
-            reserved_term = "reserved_1yr"
-        else:
-            reserved_term = None
-    else:
-        reserved_term = None
-    
-    duty = max(0.0, hours_per_day) / 24.0
-    be = break_even_utilization(reserved_discount)
-    
+    duty = max(0.0, min(24.0, hours_per_day)) / 24.0
     if interruptible:
+        if spot_hr is not None and on_demand_hr is not None:
+            rate = SPOT_INTERRUPTION_RATE.get(gpu_type, 0.05)
+            if spot_hr * (1.03 + 0.5 * rate) >= on_demand_hr:
+                return "on_demand"
         return "spot"
-    
-    # Reserved: duty >= break_even and duration justification OR no duration info (backward compat)
-    if duty >= be:
-        if job_days is None or (reserved_term and job_days >= 7):
+    if duty >= break_even_utilization(reserved_discount):
+        if job_days is None or job_days >= 365 or existing_reserved_capacity:
             return "reserved"
-    
     return "on_demand"
+
+
 def spot_checkpoint_cost(
     job_hours: float,
     spot_hr: float,
