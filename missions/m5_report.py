@@ -1,71 +1,75 @@
-"""M5 — Optimization Report: combine M1-M4 into baseline-vs-optimized (deck §1/§11).
+"""M5: explicitly conditional savings across synthetic cost scenarios.
 
-Run: python missions/m5_report.py   ->  outputs/report.md + outputs/savings.png
+API invoices, purchasing jobs and telemetry GPUs have no shared billing IDs:
+their independence is unverified. Combined savings are a hypothetical upper
+scenario, not a guaranteed saving or a reconciled billing forecast.
+Within telemetry, remove idle hours from right-sizing to avoid double count.
 """
 from __future__ import annotations
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import os
-from missions._common import num, catalog_by_type, ROOT
+from missions._common import ROOT
 from finops import report, sustainability
 from missions import m1_efficiency_audit, m2_inference_levers, m3_purchasing
 
 DAYS = 30
-# one to two tiers down for over-provisioned ("util-lie") GPUs
-RIGHTSIZE_MAP = {"H100": "A10G", "H200": "A100", "A100": "A10G", "A10G": "L4", "L4": "L4"}
 
 
 def run(verbose: bool = True) -> dict:
     r1 = m1_efficiency_audit.run(verbose=False)
     r2 = m2_inference_levers.run(verbose=False)
     r3 = m3_purchasing.run(verbose=False)
-    cat = catalog_by_type()
 
-    # --- buckets ---
-    infer_savings = (r2["baseline_daily"] - r2["optimized_daily"]) * DAYS
+    inference_savings = round((r2["baseline_daily"] - r2["optimized_daily"]) * DAYS)
     purchasing_savings = r3["on_demand_monthly"] - r3["optimized_monthly"]
-
-    idle_savings = r1["idle_waste_daily"] * DAYS
-    rightsize_savings = 0.0
-    for lie in r1["lies"]:
-        cur = lie["gpu_type"]
-        tgt = RIGHTSIZE_MAP.get(cur, cur)
-        delta = num(cat[cur]["on_demand_hr"]) - num(cat[tgt]["on_demand_hr"])
-        rightsize_savings += max(0.0, delta) * 24 * DAYS
-
+    rightsize_savings = sum(s["monthly_savings"] for s in r1["right_size_suggestions"])
+    idle_savings = round(r1["idle_waste_daily"] * DAYS)
     levers = {
-        "Inference (cascade/cache/batch)": round(infer_savings),
-        "Purchasing (spot/reserved)": round(purchasing_savings),
-        "Right-size util-lies": round(rightsize_savings),
-        "Kill idle GPUs": round(idle_savings),
+        "Inference (routing/cache/batch)": inference_savings,
+        "Purchasing (spot/covered reserved)": purchasing_savings,
+        "GPU replacement candidates (unverified)": rightsize_savings,
+        "Idle-hours opportunity": idle_savings,
     }
     baseline = r2["baseline_daily"] * DAYS + r3["on_demand_monthly"]
-    optimized = baseline - sum(levers.values())
-    total_pct = sum(levers.values()) / baseline * 100 if baseline else 0.0
+    scenario_savings = sum(levers.values())
+    optimized = baseline - scenario_savings
+    pct = scenario_savings / baseline * 100 if baseline else 0.0
 
-    # --- sustainability snapshot ---
-    median_tokens = 800
-    wh = sustainability.wh_per_query(median_tokens)
+    wh = sustainability.wh_per_query(800)
     sust = {
         "wh_per_query": wh,
         "carbon_g": sustainability.carbon_g(wh, "us-east-1"),
-        "best_region": min(sustainability.REGION_CARBON, key=sustainability.REGION_CARBON.get),
+        "cleanest_region": min(sustainability.REGION_CARBON,
+                               key=sustainability.REGION_CARBON.get),
+        "cheapest_region": min(sustainability.REGION_PRICE_KWH,
+                              key=sustainability.REGION_PRICE_KWH.get),
     }
-
-    md = report.build_report(baseline, optimized, levers, sustainability=sust)
-    out_md = os.path.join(ROOT, "outputs", "report.md")
-    os.makedirs(os.path.dirname(out_md), exist_ok=True)
-    with open(out_md, "w") as f:
+    notes = [
+        "All source data are synthetic. No real provider savings have occurred.",
+        "Combined scenario assumes external token billing, GPU job costs and telemetry fleet do not overlap; their independence has NOT been proven.",
+        "No linkage connects the 11 telemetry GPUs to the eight purchasing jobs; exclude cross-ledger savings until billing can be reconciled.",
+        "Right-sizing is capacity screening, not a performance-validated replacement. Remove idle hours before estimating right-size savings.",
+        "Reserved pricing assumes existing unused committed capacity; 30-day jobs alone cannot justify new one-year commitments.",
+        "Purchasing-only scenario: USD {:,.0f} to USD {:,.0f} ({}% saving).".format(
+            r3["on_demand_monthly"], r3["optimized_monthly"], r3["savings_pct"]),
+    ]
+    md = report.build_report(baseline, optimized, levers, sustainability=sust,
+                             inference_metrics=r2, assumptions=notes)
+    os.makedirs(os.path.join(ROOT, "outputs"), exist_ok=True)
+    with open(os.path.join(ROOT, "outputs", "report.md"), "w", encoding="utf-8") as f:
         f.write(md)
-    png = report.savings_waterfall(levers, os.path.join(ROOT, "outputs", "savings.png"))
-
+    chart = report.savings_waterfall(levers, os.path.join(ROOT, "outputs", "savings.png"),
+                                     baseline_usd=baseline)
     if verbose:
-        print("== M5 Optimization Report ==")
+        print("== M5 Conditional Optimization Scenario ==")
         print(md)
-        print(f"\nWritten: outputs/report.md" + (f" + outputs/savings.png" if png else " (matplotlib absent: PNG skipped)"))
-
-    return {"baseline_monthly": round(baseline), "optimized_monthly": round(optimized),
-            "levers": levers, "total_savings_pct": round(total_pct, 1)}
+        print("Written: outputs/report.md" + (" + outputs/savings.png" if chart else ""))
+    return {
+        "baseline_monthly": round(baseline), "optimized_monthly": round(optimized),
+        "levers": levers, "total_savings_pct": round(pct, 1),
+        "scenario_only": True,
+    }
 
 
 if __name__ == "__main__":
