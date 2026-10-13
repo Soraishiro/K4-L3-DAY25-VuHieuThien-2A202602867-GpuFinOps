@@ -41,7 +41,7 @@ python verify.py
 ```bash
 python data/generate.py       # (Tạo lại) dữ liệu tổng hợp (seed cố định = 25)
 python missions/run_all.py    # Chạy M1 → M5, in kết quả
-pytest -q                     # Chạy 15 unit + integration tests
+pytest -q                     # Chạy 15 kiểm thử gốc + 6 kiểm thử hồi quy
 ```
 
 Kết quả xuất ra thư mục `outputs/`: `report.md`, `savings.png`, `focus_export.csv`.
@@ -71,7 +71,7 @@ Day25-Track2-GPU-FinOps-Lab/
 │   ├── m4_allocation.py         # Mission 4: Phân bổ chi phí
 │   ├── m5_report.py             # Mission 5: Báo cáo tổng hợp
 │   └── run_all.py               # Chạy M1–M5 liên tiếp
-├── tests/                    # 15 unit + integration tests (pytest)
+├── tests/                    # 15 kiểm thử gốc + 6 hồi quy (pytest)
 ├── outputs/                  # Kết quả sinh ra (report.md, savings.png, ...)
 ├── bonus/                    # Phần mở rộng không bắt buộc
 │   ├── litellm_tracker/      # Giả lập LiteLLM proxy + budget cap
@@ -162,3 +162,17 @@ Nộp `outputs/report.md` + `savings.png` + một bài viết ngắn:
 - **Giá thay đổi hàng tháng.** Tất cả số liệu là snapshot tháng 6/2026. Cập nhật lại trước khi áp dụng thực tế.
 - Bài học cốt lõi **bền vững theo thời gian**: đo `$/token`, dùng MFU thay vì GPU-Util, chồng chiết khấu, tính điểm hòa vốn trước khi commit reserved, gắn tag trước khi chargeback.
 - Path graded thuần Python: `pandas`, `matplotlib`, `pytest`. Không cần GPU / API key / Docker.
+
+
+---
+
+## Giới hạn và cách đọc kết quả sau rà soát (13/10/2026)
+
+- `outputs/report.md` báo cáo **kịch bản tổng hợp có điều kiện**, không phải khoản tiết kiệm đã thực hiện. Tách ba phạm vi: chi phí dịch vụ theo token, chi phí thuê GPU theo `workloads.csv`, và cơ hội tối ưu 11 GPU từ `gpu_telemetry.csv`. Hiện chưa có mã liên kết hóa đơn để chứng minh các phạm vi này không trùng nhau, vì vậy **không được mặc định cộng vào một dự báo thực tế**.
+- M3 áp giá Reserved cho các job dưới một năm **chỉ khi giả định có sẵn cam kết còn dư**. Trước khi mua cam kết mới cần dự báo đủ 1–3 năm và tính toàn bộ giá trị hợp đồng. Chạy `m3_purchasing.run(existing_reserved_capacity=False)` để xem kịch bản chưa có cam kết.
+- M1 xem các GPU mới là **ứng viên thay thế**, sàng lọc bằng bộ nhớ, thông lượng tính toán, băng thông và giá; cần kiểm nghiệm chất lượng, độ trễ, khả năng chạy mô hình và CUDA/ROCm trước khi triển khai. Giờ GPU nhàn rỗi không được tính trùng vào giờ đổi GPU.
+- M2 mô phỏng giảm từ `$6.488` còn `$1.126/triệu token`. Chưa có kiểm nghiệm tỷ lệ giải quyết yêu cầu thành công hay đóng góp riêng của routing/cache/batch.
+- `outputs/focus_export.csv` là **dữ liệu tổng hợp có trường giống FOCUS**, không phải xuất hóa đơn tuân thủ đầy đủ FOCUS 1.2. Không có dữ liệu hợp đồng và giá thực từ nhà cung cấp. Tham khảo [đặc tả FOCUS 1.2](https://focus.finops.org/docs/specification/v1-2/columns/).
+- Kết quả bền vững dựa trên giả định mô phỏng. `europe-north1` có cường độ phát thải thấp nhất trong dữ liệu, `us-east-wa` có giá điện thấp nhất; không đồng nghĩa một vùng vừa rẻ nhất vừa sạch nhất khi tính tổng chi phí.
+
+Luồng kiểm chứng bằng GitHub Actions chạy `verify.py` và `pytest -q`, rồi cập nhật các tệp kết quả sinh tất định trong `outputs/`. Bộ kiểm thử gồm **15 kiểm thử gốc và 6 kiểm thử hồi quy mới**.
