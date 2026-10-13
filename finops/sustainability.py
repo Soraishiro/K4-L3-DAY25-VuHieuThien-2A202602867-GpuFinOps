@@ -8,7 +8,7 @@ from __future__ import annotations
 REGION_CARBON = {
     "us-east-1": 380,
     "us-west-2": 120,   # Oregon hydro
-    "europe-north1": 30,  # Norway
+    "europe-north1": 30,  # Hamina, Finland; illustrative grid factor
     "europe-central2": 660,  # Poland (dirtiest)
     "us-east-wa": 90,
 }
