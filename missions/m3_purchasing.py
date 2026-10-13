@@ -30,6 +30,7 @@ def run(verbose: bool = True, existing_reserved_capacity: bool = True) -> dict:
         # Pass additional parameters for enhanced tier recommendation
         tier = pricing.recommend_tier(hpd, interruptible, gpu_type=gtype, job_days=int(days),
                                      existing_reserved_capacity=existing_reserved_capacity,
+                                     reserved_discount=1 - num(c["reserved_1yr_hr"]) / od,
                                      spot_hr=num(c["spot_hr"]), on_demand_hr=od)
         if tier == "spot":
             sim = pricing.spot_checkpoint_cost(
@@ -37,11 +38,20 @@ def run(verbose: bool = True, existing_reserved_capacity: bool = True) -> dict:
                 interrupt_rate=pricing.SPOT_INTERRUPTION_RATE.get(gtype, 0.05))
             opt_cost = sim["spot_cost"]
         elif tier == "reserved":
-            # Use appropriate reserved rate based on job duration
-            if days > 365:  # >1 year, recommend 3-year reserved
-                opt_cost = gpu_hours * num(c["reserved_3yr_hr"])
-            else:  # <=1 year, recommend 1-year reserved
+            if existing_reserved_capacity:
+                # Existing unused coverage: allocate only the sampled usage
+                # at its amortized 1-year rate; not a new purchase.
                 opt_cost = gpu_hours * num(c["reserved_1yr_hr"])
+            else:
+                # New commitment: pay the ENTIRE contracted term(s) regardless
+                # of how few GPU-hours are used by this job.
+                r1 = pricing.commitment_total_cost(
+                    num(c["reserved_1yr_hr"]), 1, int(days), ngpu)
+                r3 = pricing.commitment_total_cost(
+                    num(c["reserved_3yr_hr"]), 3, int(days), ngpu)
+                opt_cost = min(r1, r3)
+                if opt_cost >= on_demand_cost:
+                    tier, opt_cost = "on_demand", on_demand_cost
         else:
             opt_cost = on_demand_cost
 
