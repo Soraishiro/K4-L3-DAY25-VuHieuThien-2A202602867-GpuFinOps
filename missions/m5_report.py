@@ -11,8 +11,8 @@ from finops import report, sustainability
 from missions import m1_efficiency_audit, m2_inference_levers, m3_purchasing
 
 DAYS = 30
-# one tier down for over-provisioned ("util-lie") GPUs
-RIGHTSIZE_MAP = {"H100": "A100", "H200": "H100", "A100": "A10G", "A10G": "L4", "L4": "L4"}
+# one to two tiers down for over-provisioned ("util-lie") GPUs
+RIGHTSIZE_MAP = {"H100": "A10G", "H200": "A100", "A100": "A10G", "A10G": "L4", "L4": "L4"}
 
 
 def run(verbose: bool = True) -> dict:

@@ -20,18 +20,24 @@ def run(verbose: bool = True) -> dict:
         gtype = j["gpu_type"]
         ngpu = int(num(j["num_gpus"]))
         hpd = num(j["hours_per_day"])
+        days = num(j["days"])
         interruptible = bool(int(num(j["interruptible"])))
         c = cat[gtype]
-        gpu_hours = hpd * DAYS * ngpu
+        gpu_hours = hpd * days * ngpu
         od = num(c["on_demand_hr"])
         on_demand_cost = gpu_hours * od
 
-        tier = pricing.recommend_tier(hpd, interruptible)
+        # Pass additional parameters for enhanced tier recommendation
+        tier = pricing.recommend_tier(hpd, interruptible, gpu_type=gtype, job_days=int(days))
         if tier == "spot":
             sim = pricing.spot_checkpoint_cost(gpu_hours, num(c["spot_hr"]), od)
             opt_cost = sim["spot_cost"]
         elif tier == "reserved":
-            opt_cost = gpu_hours * num(c["reserved_3yr_hr"])
+            # Use appropriate reserved rate based on job duration
+            if days > 365:  # >1 year, recommend 3-year reserved
+                opt_cost = gpu_hours * num(c["reserved_3yr_hr"])
+            else:  # <=1 year, recommend 1-year reserved
+                opt_cost = gpu_hours * num(c["reserved_1yr_hr"])
         else:
             opt_cost = on_demand_cost
 

@@ -8,7 +8,7 @@
 
 ## Bối cảnh
 
-Bạn vừa được tuyển làm **FinOps Engineer** tại *NimbusAI* — một startup LLM đang có hóa đơn GPU mất kiểm soát. Bạn được giao:
+Bạn vừa được tuyển làm **FinOps Engineer** tại _NimbusAI_ — một startup LLM đang có hóa đơn GPU mất kiểm soát. Bạn được giao:
 
 - Dữ liệu telemetry GPU tổng hợp (thực tế)
 - Danh mục giá GPU tháng 6/2026
@@ -85,25 +85,25 @@ Day25-Track2-GPU-FinOps-Lab/
 
 ## Các module `finops/`
 
-| Module | Chức năng |
-|---|---|
-| `metrics.py` | `compute_mfu`, `compute_mbu`, `roofline_regime`, `flag_util_lies`, `idle_waste_usd` |
-| `pricing.py` | `request_cost`, `dollars_per_million`, `discount_stack`, `break_even_utilization`, `recommend_tier`, `spot_checkpoint_cost` |
-| `allocation.py` | `cost_by_tag`, `tag_coverage`, `chargeback_ready`, `to_focus_rows` |
-| `sustainability.py` | `wh_per_query`, `carbon_g`, `energy_cost_usd`, `tokens_per_watt` |
-| `report.py` | `build_report`, `savings_waterfall` |
+| Module              | Chức năng                                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `metrics.py`        | `compute_mfu`, `compute_mbu`, `roofline_regime`, `flag_util_lies`, `idle_waste_usd`                                         |
+| `pricing.py`        | `request_cost`, `dollars_per_million`, `discount_stack`, `break_even_utilization`, `recommend_tier`, `spot_checkpoint_cost` |
+| `allocation.py`     | `cost_by_tag`, `tag_coverage`, `chargeback_ready`, `to_focus_rows`                                                          |
+| `sustainability.py` | `wh_per_query`, `carbon_g`, `energy_cost_usd`, `tokens_per_watt`                                                            |
+| `report.py`         | `build_report`, `savings_waterfall`                                                                                         |
 
 ---
 
 ## 5 Missions
 
-| # | Tên | Bạn học được gì | Chạy lệnh |
-|---|---|---|---|
-| **M1** | **Kiểm toán hiệu quả** — MFU/MBU, "GPU-Util lie", lãng phí idle | Slide §5 | `python missions/m1_efficiency_audit.py` |
-| **M2** | **Đòn bẩy chi phí Inference** — `$/1M-token`, batch × cache × cascade | Slide §7 | `python missions/m2_inference_levers.py` |
-| **M3** | **Chiến lược mua GPU** — điểm hòa vốn, spot/reserved, checkpoint sim | Slide §4 | `python missions/m3_purchasing.py` |
-| **M4** | **Phân bổ chi phí** — tag → showback → chargeback, FOCUS export | Slide §10 | `python missions/m4_allocation.py` |
-| **M5** | **Báo cáo tối ưu** — baseline vs. optimized + tính bền vững | Slide §1/§11 | `python missions/m5_report.py` |
+| #      | Tên                                                                   | Bạn học được gì | Chạy lệnh                                |
+| ------ | --------------------------------------------------------------------- | --------------- | ---------------------------------------- |
+| **M1** | **Kiểm toán hiệu quả** — MFU/MBU, "GPU-Util lie", lãng phí idle       | Slide §5        | `python missions/m1_efficiency_audit.py` |
+| **M2** | **Đòn bẩy chi phí Inference** — `$/1M-token`, batch × cache × cascade | Slide §7        | `python missions/m2_inference_levers.py` |
+| **M3** | **Chiến lược mua GPU** — điểm hòa vốn, spot/reserved, checkpoint sim  | Slide §4        | `python missions/m3_purchasing.py`       |
+| **M4** | **Phân bổ chi phí** — tag → showback → chargeback, FOCUS export       | Slide §10       | `python missions/m4_allocation.py`       |
+| **M5** | **Báo cáo tối ưu** — baseline vs. optimized + tính bền vững           | Slide §1/§11    | `python missions/m5_report.py`           |
 
 **Bài học cốt lõi của M1:** GPU `gpu-h100-4` hiển thị **98% GPU-Util nhưng MFU chỉ ~0.20** — bạn trả tiền cho cả giờ H100 nhưng chỉ nhận được 1/5 FLOPs. `nvidia-smi` đo "clock đang bận", không đo hiệu quả tính toán.
 
@@ -111,12 +111,12 @@ Day25-Track2-GPU-FinOps-Lab/
 
 ## Dữ liệu đầu vào (`data/`)
 
-| File | Số dòng | Cột quan trọng |
-|---|---|---|
-| `price_catalog.csv` | 7 GPU | `on_demand_hr`, `spot_hr`, `reserved_3yr_hr`, `peak_tflops_fp16`, `peak_bw_tbs`, `watts` |
-| `gpu_telemetry.csv` | 11 GPU × 24 giờ | `gpu_util_pct`, `achieved_tflops`, `achieved_bw_tbs`, `power_w` |
-| `token_usage.csv` | 2,400 request | `route_tier`, `input/output/cached_input_tokens`, `is_batch`, `is_reasoning`, `team`, `project` |
-| `workloads.csv` | 8 job | `hours_per_day`, `days`, `interruptible`, `gpu_type`, `num_gpus` |
+| File                | Số dòng         | Cột quan trọng                                                                                  |
+| ------------------- | --------------- | ----------------------------------------------------------------------------------------------- |
+| `price_catalog.csv` | 7 GPU           | `on_demand_hr`, `spot_hr`, `reserved_3yr_hr`, `peak_tflops_fp16`, `peak_bw_tbs`, `watts`        |
+| `gpu_telemetry.csv` | 11 GPU × 24 giờ | `gpu_util_pct`, `achieved_tflops`, `achieved_bw_tbs`, `power_w`                                 |
+| `token_usage.csv`   | 2,400 request   | `route_tier`, `input/output/cached_input_tokens`, `is_batch`, `is_reasoning`, `team`, `project` |
+| `workloads.csv`     | 8 job           | `hours_per_day`, `days`, `interruptible`, `gpu_type`, `num_gpus`                                |
 
 > `data/generate.py` dùng seed cố định — tái tạo luôn cho kết quả giống nhau.
 
@@ -138,12 +138,12 @@ Lab **vẫn pass** mà không cần làm các phần này. Làm để hiểu sâ
 
 Nộp `outputs/report.md` + `savings.png` + một bài viết ngắn:
 
-| Thành phần | Trọng số |
-|---|---|
-| `verify.py` pass 11/11 | 30% |
-| `pytest` pass | 20% |
-| Báo cáo thể hiện baseline vs. optimized theo **$/1M-token** với từng lever | 30% |
-| ≥2 phần mở rộng "Your Turn" được thực hiện và đo lường | 20% |
+| Thành phần                                                                 | Trọng số |
+| -------------------------------------------------------------------------- | -------- |
+| `verify.py` pass 11/11                                                     | 30%      |
+| `pytest` pass                                                              | 20%      |
+| Báo cáo thể hiện baseline vs. optimized theo **$/1M-token** với từng lever | 30%      |
+| ≥2 phần mở rộng "Your Turn" được thực hiện và đo lường                     | 20%      |
 
 > Đây là **đầu vào Milestone 2** — mang báo cáo đến buổi demo platform.
 

@@ -4,8 +4,6 @@ Figures are June-2026 as-of snapshots from the deck's RESEARCH dossier; treat
 live prices as fast-moving (re-baseline before each cohort).
 """
 from __future__ import annotations
-
-
 def request_cost(
     input_tok: int,
     output_tok: int,
@@ -27,15 +25,11 @@ def request_cost(
     if batch:
         cost *= batch_discount
     return cost
-
-
 def dollars_per_million(total_cost_usd: float, total_tokens: int) -> float:
     """Aggregate unit economics: $ per 1,000,000 tokens served."""
     if total_tokens <= 0:
         return 0.0
     return total_cost_usd / (total_tokens / 1e6)
-
-
 def discount_stack(
     batch: bool = False,
     cache_hit_frac: float = 0.0,
@@ -50,39 +44,54 @@ def discount_stack(
     cache_mult = cache_hit_frac * cache_discount + (1.0 - cache_hit_frac)
     batch_mult = batch_discount if batch else 1.0
     return cache_mult * batch_mult
-
-
 def break_even_utilization(discount_frac: float) -> float:
     """Utilization at which a commitment pays off ~= 1 - discount.
 
     A 45% reserved discount needs ~55% utilization (~13.2h/day) to beat on-demand.
     """
     return max(0.0, min(1.0, 1.0 - discount_frac))
+def recommend_tier(hours_per_day: float, interruptible: bool, reserved_discount: float = 0.45,
+                  gpu_type: str = None, job_days: int = None) -> str:
+    """Pick a purchasing tier from a workload's duty cycle + interruptibility + job duration.
 
-
-def recommend_tier(hours_per_day: float, interruptible: bool, reserved_discount: float = 0.45) -> str:
-    """Pick a purchasing tier from a workload's duty cycle + interruptibility.
-
-    DOCUMENTED simple policy (instructor extension point — swap in your own):
-      - interruptible & not 24/7  -> 'spot'      (checkpoint and ride the discount)
-      - duty cycle >= break-even  -> 'reserved'  (steady, high utilization)
-      - otherwise                 -> 'on_demand' (spiky / low duty)
+    Enhanced policy:
+      - Spot: interruptible job
+      - Reserved: duty >= break-even AND (job_days >= 7 OR job_days is None)
+      - On-demand: otherwise
+    
+    Added considerations:
+      - GPU type influences interruption rate (higher-end GPUs more stable for reserved)
+      - Job duration matches reserved commitment length (7+ days minimum for reserved)
+      - Break-even utilization with reserved_discount (default 45%)
     """
+    if job_days is not None:
+        if job_days > 365:
+            reserved_term = "reserved_3yr"
+        elif job_days > 0:
+            reserved_term = "reserved_1yr"
+        else:
+            reserved_term = None
+    else:
+        reserved_term = None
+    
     duty = max(0.0, hours_per_day) / 24.0
     be = break_even_utilization(reserved_discount)
-    if interruptible and hours_per_day < 24:
+    
+    if interruptible:
         return "spot"
+    
+    # Reserved: duty >= break_even and duration justification OR no duration info (backward compat)
     if duty >= be:
-        return "reserved"
+        if job_days is None or (reserved_term and job_days >= 7):
+            return "reserved"
+    
     return "on_demand"
-
-
 def spot_checkpoint_cost(
     job_hours: float,
     spot_hr: float,
     on_demand_hr: float,
-    interrupt_rate: float = 0.05,      # per-hour chance (H100 spot ~<5%)
-    ckpt_overhead_frac: float = 0.03,  # steady cost of writing checkpoints
+    interrupt_rate: float = 0.05,
+    ckpt_overhead_frac: float = 0.03,
     rework_hours_per_interrupt: float = 0.5,
 ) -> dict:
     """Effective cost of running a checkpointable job on spot vs on-demand.
