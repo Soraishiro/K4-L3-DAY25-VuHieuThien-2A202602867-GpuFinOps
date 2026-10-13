@@ -11,7 +11,7 @@ from finops import pricing
 DAYS = 30
 
 
-def run(verbose: bool = True) -> dict:
+def run(verbose: bool = True, existing_reserved_capacity: bool = True) -> dict:
     jobs = load_csv("workloads.csv")
     cat = catalog_by_type()
     on_demand_monthly = optimized_monthly = 0.0
@@ -28,9 +28,13 @@ def run(verbose: bool = True) -> dict:
         on_demand_cost = gpu_hours * od
 
         # Pass additional parameters for enhanced tier recommendation
-        tier = pricing.recommend_tier(hpd, interruptible, gpu_type=gtype, job_days=int(days))
+        tier = pricing.recommend_tier(hpd, interruptible, gpu_type=gtype, job_days=int(days),
+                                     existing_reserved_capacity=existing_reserved_capacity,
+                                     spot_hr=num(c["spot_hr"]), on_demand_hr=od)
         if tier == "spot":
-            sim = pricing.spot_checkpoint_cost(gpu_hours, num(c["spot_hr"]), od)
+            sim = pricing.spot_checkpoint_cost(
+                gpu_hours, num(c["spot_hr"]), od,
+                interrupt_rate=pricing.SPOT_INTERRUPTION_RATE.get(gtype, 0.05))
             opt_cost = sim["spot_cost"]
         elif tier == "reserved":
             # Use appropriate reserved rate based on job duration
@@ -51,13 +55,16 @@ def run(verbose: bool = True) -> dict:
 
     if verbose:
         print("== M3 Purchasing Strategy ==")
+        print(f"Reserved: {'existing unused coverage' if existing_reserved_capacity else 'new commitment requires >= 365 days'}")
         print(f"break-even utilization @ 45% reserved discount = {pricing.break_even_utilization(0.45):.0%}")
         print(f"{'job':18}{'gpu':7}{'tier':11}{'on-demand':>12}{'optimized':>12}")
         for r in recs:
             print(f"{r['job_id']:18}{r['gpu_type']:7}{r['tier']:11}${r['on_demand']:>11,}${r['optimized']:>11,}")
         print(f"\nmonthly: on-demand ${on_demand_monthly:,.0f} -> optimized ${optimized_monthly:,.0f}  ({savings_pct:.1f}% saved)")
 
-    return {"recommendations": recs, "on_demand_monthly": round(on_demand_monthly),
+    return {"recommendations": recs,
+            "reserved_assumption": "existing unused coverage" if existing_reserved_capacity else "new commitment requires >=365 days",
+            "on_demand_monthly": round(on_demand_monthly),
             "optimized_monthly": round(optimized_monthly), "savings_pct": round(savings_pct, 1)}
 
 
