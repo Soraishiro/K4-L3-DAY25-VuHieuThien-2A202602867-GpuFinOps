@@ -11,6 +11,9 @@ def test_reserved_commitment_horizon():
     assert pricing.recommend_tier(24, False, job_days=30,
                                   existing_reserved_capacity=True) == "reserved"
     assert pricing.recommend_tier(24, False, job_days=365) == "reserved"
+    assert pricing.commitment_total_cost(2.0, 1, 30, 1) == 17520
+    assert pricing.commitment_total_cost(1.4, 3, 366, 1) == 36792
+    assert pricing.commitment_total_cost(2.0, 1, 366, 1) < pricing.commitment_total_cost(1.4, 3, 366, 1)
 
 
 def test_gpu_type_affects_expected_spot_cost():
@@ -28,6 +31,8 @@ def test_rightsize_excludes_idle_hours():
         source = next(x for x in result["summary"] if x["gpu_id"] == s["gpu_id"])
         assert s["active_hours_month"] == (24 - source["idle_hours"]) * 30
         assert s["monthly_savings"] >= 0
+        assert s["cost_per_gb_after"] < s["cost_per_gb_before"]
+        assert s["bandwidth_after"] > 0
 
 
 def test_new_commitment_not_recommended_for_short_jobs():
